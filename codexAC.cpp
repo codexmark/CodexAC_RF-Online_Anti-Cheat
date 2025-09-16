@@ -169,3 +169,46 @@ void write_log(const std::string& s) {
     }
 }
 
+// --- PE helpers to compare in-memory sections to on-disk raw data ---
+bool compare_file_vs_memory_sections(const std::vector<uint8>& fileData, HMODULE moduleBase, std::string& outReason) {
+    if (fileData.size() < sizeof(IMAGE_DOS_HEADER)) { outReason = "file too small"; return false; }
+    auto dos = (IMAGE_DOS_HEADER*)fileData.data();
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) { outReason = "invalid DOS signature"; return false; }
+    if (fileData.size() < (size_t)dos->e_lfanew + sizeof(IMAGE_NT_HEADERS)) { outReason = "file truncated"; return false; }
+    auto nt = (IMAGE_NT_HEADERS*)((uint8*)fileData.data() + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) { outReason = "invalid NT signature"; return false; }
+
+    IMAGE_FILE_HEADER& fh = nt->FileHeader;
+    IMAGE_OPTIONAL_HEADER& oh = nt->OptionalHeader;
+
+    IMAGE_SECTION_HEADER* sections = IMAGE_FIRST_SECTION(nt);
+    for (unsigned i = 0; i < fh.NumberOfSections; ++i) {
+        IMAGE_SECTION_HEADER& s = sections[i];
+        // If no raw data, skip
+        if (s.SizeOfRawData == 0) continue;
+        // bounds check
+        if ((size_t)s.PointerToRawData + s.SizeOfRawData > fileData.size()) {
+            outReason = "section raw out of bounds";
+            return false;
+        }
+
+        uint8* memPtr = (uint8*)moduleBase + s.VirtualAddress;
+        uint8* filePtr = (uint8*)fileData.data() + s.PointerToRawData;
+        // Compare min(size in memory, raw data)
+        SIZE_T cmpSize = s.SizeOfRawData;
+        // However memory may be larger (VirtualSize) but we compare raw bytes
+        if (memcmp(memPtr, filePtr, cmpSize) != 0) {
+            // find first differing byte for better log
+            size_t diffIndex = 0;
+            for (size_t b=0; b<cmpSize; ++b) {
+                if (memPtr[b] != filePtr[b]) { diffIndex = b; break; }
+            }
+            std::ostringstream ss;
+            ss << "Section " << std::string((char*)s.Name, strnlen((char*)s.Name, IMAGE_SIZEOF_SHORT_NAME))
+               << " modified at offset 0x" << std::hex << (s.VirtualAddress + diffIndex);
+            outReason = ss.str();
+            return false;
+        }
+    }
+    return true;
+}
