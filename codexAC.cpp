@@ -212,3 +212,20 @@ bool compare_file_vs_memory_sections(const std::vector<uint8>& fileData, HMODULE
     }
     return true;
 }
+
+// --- Module enumeration helper ---
+std::vector<std::wstring> enumerate_loaded_modules() {
+    std::vector<std::wstring> result;
+    HMODULE hMods[1024];
+    DWORD cbNeeded;
+    if (EnumProcessModules(GetCurrentProcess(), hMods, sizeof(hMods), &cbNeeded)) {
+        size_t count = cbNeeded / sizeof(HMODULE);
+        for (size_t i=0;i<count;i++) {
+            wchar_t name[MAX_PATH];
+            if (GetModuleFileNameW(hMods[i], name, MAX_PATH)) {
+                result.emplace_back(name);
+            }
+        }
+    }
+    return result;
+}
