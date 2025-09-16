@@ -213,7 +213,7 @@ bool compare_file_vs_memory_sections(const std::vector<uint8>& fileData, HMODULE
     return true;
 }
 
-// --- Module enumeration helper ---
+// --- helper de enumeração de modulos ---
 std::vector<std::wstring> enumerate_loaded_modules() {
     std::vector<std::wstring> result;
     HMODULE hMods[1024];
@@ -228,4 +228,95 @@ std::vector<std::wstring> enumerate_loaded_modules() {
         }
     }
     return result;
+}
+
+// ---  thread  de monitoramento---
+DWORD WINAPI monitor_thread(LPVOID lpParam) {
+    UNREFERENCED_PARAMETER(lpParam);
+    // pega o caminho 
+    wchar_t exePathW[MAX_PATH];
+    GetModuleFileNameW(NULL, exePathW, MAX_PATH);
+    std::wstring exePath(exePathW);
+
+    // primeira leitura do arquivo
+    std::vector<uint8> fileData;
+    if (!read_file_to_vector(exePath, fileData)) {
+        write_log("codexAC: failed to read executable file at startup.");
+        // Not fatal; continua tentando periodicamente
+    }
+    std::string initialHash = fileData.size() ? sha256_of_buffer(fileData) : std::string();
+
+    std::ostringstream startmsg;
+    startmsg << "codexAC started. initial file SHA256=" << initialHash;
+    write_log(startmsg.str());
+
+    HMODULE hModule = GetModuleHandleW(NULL); //  address base do executavél
+    const DWORD pollMs = 2000;
+
+    while (true) {
+        // Sleep a bit
+        Sleep(pollMs);
+
+        // 1) le novamente os arquivos no disco e compara as hashes
+        std::vector<uint8> newFile;
+        if (!read_file_to_vector(exePath, newFile)) {
+            write_log("codexAC: failed to read file during monitoring.");
+            continue;
+        }
+        std::string newHash = sha256_of_buffer(newFile);
+        if (initialHash.empty()) initialHash = newHash; // set if first time failed earlier
+
+        if (newHash != initialHash) {
+            std::ostringstream ss;
+            ss << "INTEGRITY FAIL: file hash changed! previous=" << initialHash << " now=" << newHash;
+            write_log(ss.str());
+            // Action: matando o processo
+            write_log("codexAC: terminating process due to file modification.");
+            TerminateProcess(GetCurrentProcess(), 1);
+            return 0;
+        }
+
+        // 2) compara o arquivo com as seções de memoria
+        std::string reason;
+        if (!compare_file_vs_memory_sections(newFile, hModule, reason)) {
+            std::ostringstream ss;
+            ss << "INTEGRITY FAIL: in-memory differs from on-disk: " << reason;
+            write_log(ss.str());
+            write_log("codexAC: terminating process due to in-memory modification.");
+            TerminateProcess(GetCurrentProcess(), 2);
+            return 0;
+        }
+
+        // 3) enumera os modulos carregados e anota os novos desconhecidos de vez em quando
+        static DWORD tickCount = 0;
+        tickCount++;
+        if (tickCount % 15 == 0) { // every ~30s (15 * 2s)
+            auto modules = enumerate_loaded_modules();
+            std::ostringstream ss;
+            ss << "Modules loaded: count=" << modules.size();
+            write_log(ss.str());
+            // todo: implementar uma whitelist check aqui
+        }
+
+        
+    }
+    return 0;
+}
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
+    switch (ul_reason_for_call) {
+    case DLL_PROCESS_ATTACH:
+        // Cria uma thread de monitoramento. Tamebém muito simples.
+        {
+            HANDLE h = CreateThread(NULL, 0, monitor_thread, NULL, 0, NULL);
+            if (h) CloseHandle(h);
+            
+        }
+        break;
+    case DLL_THREAD_ATTACH:
+    case DLL_THREAD_DETACH:
+    case DLL_PROCESS_DETACH:
+        break;
+    }
+    return TRUE;
 }
