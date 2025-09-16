@@ -150,3 +150,22 @@ bool read_file_to_vector(const std::wstring& path, std::vector<uint8>& out) {
     f.read(reinterpret_cast<char*>(out.data()), size);
     return true;
 }
+void write_log(const std::string& s) {
+    // Append to a simple log in executable folder.
+    wchar_t path[MAX_PATH];
+    GetModuleFileNameW(NULL, path, MAX_PATH);
+    std::wstring wpath(path);
+    size_t pos = wpath.find_last_of(L"\\/");
+    std::wstring dir = (pos==std::wstring::npos) ? L"." : wpath.substr(0,pos);
+    std::wstring logfile = dir + L"\\codexAC_log.txt";
+    std::ofstream ofs(logfile, std::ios::app);
+    if (ofs) {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        char buftime[128];
+        sprintf_s(buftime, "%04d-%02d-%02d %02d:%02d:%02d",
+            st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+        ofs << "[" << buftime << "] " << s << std::endl;
+    }
+}
+
