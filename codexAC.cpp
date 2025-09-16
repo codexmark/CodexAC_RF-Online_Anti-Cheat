@@ -151,7 +151,7 @@ bool read_file_to_vector(const std::wstring& path, std::vector<uint8>& out) {
     return true;
 }
 void write_log(const std::string& s) {
-    // Append to a simple log in executable folder.
+    // criando um log simples na pasta do executavél.
     wchar_t path[MAX_PATH];
     GetModuleFileNameW(NULL, path, MAX_PATH);
     std::wstring wpath(path);
@@ -169,7 +169,7 @@ void write_log(const std::string& s) {
     }
 }
 
-// --- PE helpers to compare in-memory sections to on-disk raw data ---
+// --- Alguns helpers para comparar a memoria com os dados brutos slavos no disco ---
 bool compare_file_vs_memory_sections(const std::vector<uint8>& fileData, HMODULE moduleBase, std::string& outReason) {
     if (fileData.size() < sizeof(IMAGE_DOS_HEADER)) { outReason = "file too small"; return false; }
     auto dos = (IMAGE_DOS_HEADER*)fileData.data();
