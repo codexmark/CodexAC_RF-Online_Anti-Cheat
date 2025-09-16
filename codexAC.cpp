@@ -91,3 +91,62 @@ void sha256_update(SHA256_CTX *ctx, const uint8 data[], size_t len) {
 
 void sha256_final(SHA256_CTX *ctx, uint8 hash[32]) {
     uint32 i = ctx->len;
+
+      // Pad
+    if (ctx->len < 56) {
+        ctx->block[i++] = 0x80;
+        while (i < 56) ctx->block[i++] = 0x00;
+    } else {
+        ctx->block[i++] = 0x80;
+        while (i < 64) ctx->block[i++] = 0x00;
+        sha256_transform(ctx, ctx->block);
+        memset(ctx->block, 0, 56);
+    }
+    ctx->tot_len += ctx->len * 8;
+    // Append length
+    ctx->block[63] = ctx->tot_len;
+    ctx->block[62] = ctx->tot_len >> 8;
+    ctx->block[61] = ctx->tot_len >> 16;
+    ctx->block[60] = ctx->tot_len >> 24;
+    ctx->block[59] = ctx->tot_len >> 32;
+    ctx->block[58] = ctx->tot_len >> 40;
+    ctx->block[57] = ctx->tot_len >> 48;
+    ctx->block[56] = ctx->tot_len >> 56;
+    sha256_transform(ctx, ctx->block);
+    for (i = 0; i < 8; ++i) {
+        hash[i*4]   = (ctx->h[i] >> 24) & 0xFF;
+        hash[i*4+1] = (ctx->h[i] >> 16) & 0xFF;
+        hash[i*4+2] = (ctx->h[i] >> 8) & 0xFF;
+        hash[i*4+3] = (ctx->h[i]) & 0xFF;
+    }
+}
+
+std::string hexify(const uint8 *buf, size_t len) {
+    static const char* hex = "0123456789abcdef";
+    std::string s; s.reserve(len*2);
+    for (size_t i=0;i<len;i++){
+        s.push_back(hex[buf[i]>>4]);
+        s.push_back(hex[buf[i]&0xF]);
+    }
+    return s;
+}
+
+std::string sha256_of_buffer(const std::vector<uint8>& data) {
+    SHA256_CTX ctx;
+    sha256_init(&ctx);
+    sha256_update(&ctx, data.data(), data.size());
+    uint8 out[32]; sha256_final(&ctx, out);
+    return hexify(out, 32);
+}
+
+bool read_file_to_vector(const std::wstring& path, std::vector<uint8>& out) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    f.seekg(0, std::ios::end);
+    std::streamoff size = f.tellg();
+    if (size <= 0) return false;
+    f.seekg(0, std::ios::beg);
+    out.resize((size_t)size);
+    f.read(reinterpret_cast<char*>(out.data()), size);
+    return true;
+}
